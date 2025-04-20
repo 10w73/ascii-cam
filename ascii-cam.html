@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Real-time ASCII art webcam converter that runs entirely in your browser">
+  <meta name="author" content="Alex Lauterbach">
+  <title>ASCII Cam — Canvas Renderer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background:#0f172a; color:#d1d5db }
+    #asciiCanvas { background:#000; image-rendering:pixelated }
+    #countdownOverlay { backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px) }
+  </style>
+  <link rel="icon" type="image/x-icon" href="./favicon.ico">
+  <link rel="icon" type="image/png" href="./favicon.png">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="ASCII-Cam" />
+</head>
+<body class="min-h-screen flex flex-col items-center p-4">
+  <h1 class="text-2xl font-bold mb-6">ASCII Cam — Canvas Renderer</h1>
+
+  <div class="grid lg:grid-cols-[300px_1fr] gap-6 w-full max-w-screen-xl">
+    <!-- Controls -->
+    <div class="flex flex-col gap-4">
+      <div>
+        <label for="brightness" class="block mb-1">Brightness: <span id="brightnessValue">100%</span></label>
+        <input id="brightness" type="range" min="0" max="200" value="100" class="w-full">
+      </div>
+      <div>
+        <label for="contrast" class="block mb-1">Contrast: <span id="contrastValue">100%</span></label>
+        <input id="contrast" type="range" min="0" max="200" value="100" class="w-full">
+      </div>
+      <div class="flex items-center gap-2">
+        <input id="colorMode" type="checkbox" class="h-4 w-4"> <label for="colorMode">Color mode (canvas)</label>
+      </div>
+      <div class="flex items-center gap-2">
+        <input id="invert" type="checkbox" class="h-4 w-4"> <label for="invert">Invert colors</label>
+      </div>
+      <button id="snapshotBtn" class="mt-4 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white">📸 Save snapshot</button>
+      <p class="text-xs opacity-60 pt-2">Snapshot triggers after a 3 s countdown.</p>
+    </div>
+
+    <!-- Canvas output -->
+    <canvas id="asciiCanvas" class="w-full h-auto rounded-xl shadow-lg"></canvas>
+  </div>
+
+  <!-- Countdown overlay -->
+  <div id="countdownOverlay" class="hidden fixed inset-0 z-50 flex items-center justify-center text-[8rem] font-extrabold text-white/90 bg-black/60 select-none"></div>
+
+  <!-- Hidden media elements -->
+  <video id="video" class="hidden" autoplay muted playsinline></video>
+  <canvas id="captureCanvas" class="hidden"></canvas>
+
+  <footer class="text-xs opacity-60 mt-8 text-center w-full">Built with AI, ❤️ and JavaScript. No frames leave your machine.</footer>
+
+<script>
+/**
+ * =========================================================
+ * ASCII Cam — Canvas Edition (v1.0.0)
+ * =========================================================
+ * 
+ * A real-time ASCII art webcam converter that runs entirely
+ * in your browser. Transform your webcam feed into ASCII 
+ * characters with adjustable settings.
+ * 
+ * Features:
+ * - Efficient canvas-based rendering
+ * - Adjustable brightness and contrast
+ * - Optional color mode
+ * - Invert colors option
+ * - Snapshot functionality with countdown
+ * 
+ * Privacy: All processing happens locally in your browser.
+ * No images are transmitted over the network.
+ * 
+ * MIT License
+ * =========================================================
+ */
+
+// -------- Configuration Constants -------- //
+const CHARS_PER_ROW = 160;      // Number of characters per row (resolution)
+const FONT_PX       = 10;       // Font size in pixels
+const CHAR_W        = 6;        // Approximate glyph width in monospace font at 10px
+const PALETTE       = ' .`^",:;Il!i~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$';
+
+/**
+ * Maps brightness level to corresponding ASCII character
+ * @param {number} l - Luminance value (0-255)
+ * @returns {string} ASCII character representing the brightness
+ */
+const GLYPH = l => PALETTE[Math.floor(l / 255 * (PALETTE.length - 1))];
+
+// -------- DOM Element References -------- //
+const ui = {
+  video  : document.getElementById('video'),
+  cap    : document.getElementById('captureCanvas'), // Hidden canvas for pixel sampling
+  ascii  : document.getElementById('asciiCanvas'),   // Visible canvas for rendering ASCII art
+  overlay: document.getElementById('countdownOverlay'),
+  snapBtn: document.getElementById('snapshotBtn'),
+  sliders: {
+    brightness: document.getElementById('brightness'),
+    contrast  : document.getElementById('contrast'),
+  },
+  toggles: {
+    color : document.getElementById('colorMode'),
+    invert: document.getElementById('invert'),
+  },
+  labels: {
+    brightness: document.getElementById('brightnessValue'),
+    contrast  : document.getElementById('contrastValue'),
+  }
+};
+
+// Initialize canvas contexts
+const ctxCap   = ui.cap.getContext('2d');
+const ctxAscii = ui.ascii.getContext('2d');
+ctxAscii.font  = `${FONT_PX}px 'Fira Mono', monospace`;
+ctxAscii.textBaseline = 'top';
+ctxAscii.imageSmoothingEnabled = false;
+
+// -------- Application State -------- //
+const cfg = { brightness: 100, contrast: 100, color: false, invert: false };
+
+// -------- Helper Functions -------- //
+
+/**
+ * Applies brightness, contrast, and inversion to RGB values
+ * @param {Array} rgb - Array of [r,g,b] values (0-255)
+ * @returns {Array} - Processed [r,g,b] values
+ */
+function tune([r, g, b]) {
+  const br = cfg.brightness / 100, ct = cfg.contrast / 100;
+  r = ((r - 128) * ct + 128) * br;
+  g = ((g - 128) * ct + 128) * br;
+  b = ((b - 128) * ct + 128) * br;
+  if (cfg.invert) { r = 255 - r; g = 255 - g; b = 255 - b; }
+  return [r, g, b];
+}
+
+/**
+ * Updates configuration from UI controls
+ */
+function syncControls() {
+  cfg.brightness = +ui.sliders.brightness.value;
+  cfg.contrast   = +ui.sliders.contrast.value;
+  cfg.color      = ui.toggles.color.checked;
+  cfg.invert     = ui.toggles.invert.checked;
+  ui.labels.brightness.textContent = cfg.brightness + '%';
+  ui.labels.contrast.textContent   = cfg.contrast   + '%';
+}
+
+// Set up UI control event listeners
+['brightness','contrast'].forEach(k => ui.sliders[k].oninput = syncControls);
+['color','invert'].forEach(k => ui.toggles[k].onchange = syncControls);
+
+// -------- Main Rendering Loop -------- //
+let rows = 0;
+
+/**
+ * Main rendering function that processes video frames
+ * and converts them to ASCII art
+ */
+function render() {
+  if (ui.video.readyState >= 2) {
+    const vw = ui.video.videoWidth, vh = ui.video.videoHeight;
+    if (vw && vh) {
+      ui.cap.width = vw; ui.cap.height = vh;
+      ctxCap.drawImage(ui.video, 0, 0, vw, vh);
+
+      const cellH = (vw / CHARS_PER_ROW) * 2;   // Maintain aspect ratio
+      rows = Math.floor(vh / cellH);
+
+      // Resize visible canvas to match glyph grid (device pixels)
+      const canvasW = CHARS_PER_ROW * CHAR_W;
+      const canvasH = rows * FONT_PX;
+      if (ui.ascii.width !== canvasW || ui.ascii.height !== canvasH) {
+        ui.ascii.width  = canvasW;
+        ui.ascii.height = canvasH;
+        ctxAscii.font = `${FONT_PX}px 'Fira Mono', monospace`;
+      }
+
+      const img = ctxCap.getImageData(0,0,vw,vh).data;
+      ctxAscii.clearRect(0, 0, canvasW, canvasH);
+
+      // Process each cell in the grid
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < CHARS_PER_ROW; x++) {
+          const px = (x * vw / CHARS_PER_ROW) | 0;
+          const py = (y * vh / rows) | 0;
+          const idx = (py * vw + px) * 4;
+          let [r,g,b] = tune([img[idx], img[idx+1], img[idx+2]]);
+          
+          // Calculate luminance using standard formula
+          const lum = 0.2126*r + 0.7152*g + 0.0722*b;
+          const ch  = GLYPH(lum);
+          
+          // Set fill style based on color mode
+          if (cfg.color) ctxAscii.fillStyle = `rgb(${r|0},${g|0},${b|0})`;
+          else           ctxAscii.fillStyle = '#ffffff';
+          
+          ctxAscii.fillText(ch, x*CHAR_W, y*FONT_PX);
+        }
+      }
+    }
+  }
+  requestAnimationFrame(render);
+}
+
+// -------- Snapshot Functionality -------- //
+ui.snapBtn.addEventListener('click', () => countdown(3));
+
+/**
+ * Starts countdown before taking snapshot
+ * @param {number} t - Countdown seconds
+ */
+function countdown(t) {
+  ui.snapBtn.disabled = true;
+  ui.overlay.textContent = t;
+  ui.overlay.classList.remove('hidden');
+  const iv = setInterval(() => {
+    t--;
+    if (t === 0) {
+      clearInterval(iv);
+      ui.overlay.classList.add('hidden');
+      savePNG();
+      ui.snapBtn.disabled = false;
+    } else {
+      ui.overlay.textContent = t;
+    }
+  }, 1000);
+}
+
+/**
+ * Saves current canvas output as PNG image
+ * Tries to use modern File System Access API with fallback
+ */
+async function savePNG() {
+  // Convert canvas to PNG blob
+  ui.ascii.toBlob(async blob => {
+    if (!blob) return;
+    
+    // Try File System Access API (modern browsers)
+    if (window.showSaveFilePicker) {
+      try {
+        const h = await showSaveFilePicker({ 
+          suggestedName: 'ascii-snapshot.png', 
+          types: [{ description: 'PNG', accept: { 'image/png': ['.png'] } }] 
+        });
+        const w = await h.createWritable(); 
+        await w.write(blob); 
+        await w.close(); 
+        return;
+      } catch(e) { 
+        // Silently fall through to fallback method
+      }
+    }
+    
+    // Fallback download method (older browsers)
+    const url = URL.createObjectURL(blob); 
+    const a = document.createElement('a');
+    a.href = url; 
+    a.download = 'ascii-snapshot.png'; 
+    document.body.appendChild(a); 
+    a.click();
+    
+    // Clean up resources
+    setTimeout(() => { 
+      URL.revokeObjectURL(url); 
+      a.remove(); 
+    }, 1000);
+  }, 'image/png');
+}
+
+// -------- Initialize Application -------- //
+(async () => {
+  try {
+    // Request webcam access
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    ui.video.srcObject = stream; 
+    await ui.video.play(); 
+    
+    // Set up UI and start rendering
+    syncControls(); 
+    requestAnimationFrame(render);
+  } catch(err) {
+    // Handle webcam access errors
+    ctxAscii.fillStyle = '#fff'; 
+    ctxAscii.fillText('🚫 ' + err.message, 10, 10);
+    console.error('Webcam access error:', err);
+  }
+})();
+</script>
+</body>
+</html>
