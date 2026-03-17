@@ -3,293 +3,514 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Real-time ASCII art webcam converter that runs entirely in your browser">
+  <meta name="description" content="Real-time ASCII art webcam converter — runs entirely in your browser">
   <meta name="author" content="Alex Lauterbach">
-  <title>ASCII Cam — Canvas Renderer</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    body { background:#0f172a; color:#d1d5db }
-    #asciiCanvas { background:#000; image-rendering:pixelated }
-    #countdownOverlay { backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px) }
-  </style>
+  <meta name="color-scheme" content="dark">
+  <title>ASCII Cam</title>
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
-  <meta name="apple-mobile-web-app-title" content="ASCII-Cam" />
+  <meta name="apple-mobile-web-app-title" content="ASCII Cam">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #000;
+      --bg-secondary: #1c1c1e;
+      --bg-elevated: #3a3a3c;
+      --text: #f5f5f7;
+      --text-secondary: #a1a1a6;
+      --text-tertiary: #8e8e93;
+      --accent: #0a84ff;
+      --green: #30d158;
+      --separator: rgba(84, 84, 88, 0.65);
+      --radius: 12px;
+      --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
+      --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    /* Header */
+    header { padding: 16px 20px; text-align: center; }
+    header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+
+    /* Main layout */
+    main {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 20px;
+      padding: 0 20px 20px;
+      min-height: 0;
+    }
+    @media (max-width: 768px) {
+      main { grid-template-columns: 1fr; }
+    }
+
+    /* Sidebar */
+    .sidebar { display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+
+    .group-title {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      padding: 0 16px 6px;
+    }
+
+    .control-group {
+      background: var(--bg-secondary);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .control-item { padding: 12px 16px; }
+    .control-item + .control-item { border-top: 0.5px solid var(--separator); }
+
+    .control-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .control-label { font-size: 15px; font-weight: 400; }
+
+    .control-value {
+      font-size: 15px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+      min-width: 3.5em;
+      text-align: right;
+    }
+
+    /* Range slider — Apple style */
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 28px;
+      background: transparent;
+      cursor: pointer;
+      --fill: 50%;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 4px;
+      border-radius: 2px;
+      background: linear-gradient(to right, var(--accent) var(--fill), var(--bg-elevated) var(--fill));
+    }
+    input[type="range"]::-moz-range-track {
+      height: 4px;
+      border-radius: 2px;
+      background: var(--bg-elevated);
+    }
+    input[type="range"]::-moz-range-progress {
+      height: 4px;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0.5px 4px rgba(0,0,0,0.3);
+      margin-top: -12px;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0.5px 4px rgba(0,0,0,0.3);
+      border: none;
+    }
+    input[type="range"]:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 4px;
+      border-radius: 2px;
+    }
+
+    /* Toggle switch — Apple style */
+    .sr-only {
+      position: absolute;
+      width: 1px; height: 1px;
+      padding: 0; margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .control-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      cursor: pointer;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    .control-toggle + .control-toggle { border-top: 0.5px solid var(--separator); }
+
+    .toggle-track {
+      position: relative;
+      width: 51px; height: 31px;
+      border-radius: 15.5px;
+      background: var(--bg-elevated);
+      transition: background 0.2s ease;
+      flex-shrink: 0;
+    }
+    .toggle-knob {
+      position: absolute;
+      width: 27px; height: 27px;
+      border-radius: 50%;
+      background: #fff;
+      top: 2px; left: 2px;
+      transition: transform 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    input:checked + .toggle-track { background: var(--green); }
+    input:checked + .toggle-track .toggle-knob { transform: translateX(20px); }
+    input:focus-visible + .toggle-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .toggle-track, .toggle-knob { transition: none; }
+    }
+
+    /* Snapshot button */
+    .snapshot-btn {
+      display: block;
+      width: 100%;
+      padding: 14px 16px;
+      font-family: var(--font);
+      font-size: 17px;
+      font-weight: 500;
+      color: #fff;
+      background: var(--accent);
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: opacity 0.15s ease;
+    }
+    .snapshot-btn:hover { opacity: 0.85; }
+    .snapshot-btn:active { opacity: 0.7; }
+    .snapshot-btn:disabled { opacity: 0.4; cursor: default; }
+    .snapshot-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    /* Canvas area */
+    .canvas-wrap {
+      display: flex;
+      align-items: start;
+      justify-content: center;
+      min-height: 0;
+      overflow: hidden;
+      border-radius: var(--radius);
+      background: #000;
+    }
+    #ascii-canvas {
+      width: 100%;
+      height: auto;
+      image-rendering: pixelated;
+      display: block;
+    }
+
+    /* Error state */
+    .error-message {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      min-height: 200px;
+      font-size: 17px;
+      color: var(--text-secondary);
+      text-align: center;
+      padding: 40px;
+      line-height: 1.5;
+    }
+
+    /* Countdown overlay */
+    #countdown-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      font-size: 8rem;
+      font-weight: 700;
+      color: rgba(255,255,255,0.9);
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    /* Footer */
+    footer {
+      padding: 12px 20px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-tertiary);
+    }
+    .hint {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      text-align: center;
+    }
+  </style>
 </head>
-<body class="min-h-screen flex flex-col items-center p-4">
-  <h1 class="text-2xl font-bold mb-6">ASCII Cam — Canvas Renderer</h1>
+<body>
+  <header><h1>ASCII Cam</h1></header>
 
-  <div class="grid lg:grid-cols-[300px_1fr] gap-6 w-full max-w-screen-xl">
-    <!-- Controls -->
-    <div class="flex flex-col gap-4">
+  <main>
+    <aside class="sidebar">
       <div>
-        <label for="brightness" class="block mb-1">Brightness: <span id="brightnessValue">100%</span></label>
-        <input id="brightness" type="range" min="0" max="200" value="100" class="w-full">
+        <p class="group-title">Render</p>
+        <div class="control-group">
+          <div class="control-item">
+            <div class="control-header">
+              <span class="control-label">Detail</span>
+              <span class="control-value" data-for="detail">160</span>
+            </div>
+            <input type="range" id="detail" min="60" max="300" value="160" step="10">
+          </div>
+        </div>
       </div>
+
       <div>
-        <label for="contrast" class="block mb-1">Contrast: <span id="contrastValue">100%</span></label>
-        <input id="contrast" type="range" min="0" max="200" value="100" class="w-full">
+        <p class="group-title">Adjust</p>
+        <div class="control-group">
+          <div class="control-item">
+            <div class="control-header">
+              <span class="control-label">Brightness</span>
+              <span class="control-value" data-for="brightness">100%</span>
+            </div>
+            <input type="range" id="brightness" min="20" max="300" value="100">
+          </div>
+          <div class="control-item">
+            <div class="control-header">
+              <span class="control-label">Contrast</span>
+              <span class="control-value" data-for="contrast">100%</span>
+            </div>
+            <input type="range" id="contrast" min="20" max="300" value="100">
+          </div>
+        </div>
       </div>
-      <div class="flex items-center gap-2">
-        <input id="colorMode" type="checkbox" class="h-4 w-4"> <label for="colorMode">Color mode (canvas)</label>
+
+      <div>
+        <p class="group-title">Style</p>
+        <div class="control-group">
+          <label class="control-toggle">
+            <span class="control-label">Color</span>
+            <input type="checkbox" id="color-mode" class="sr-only">
+            <span class="toggle-track"><span class="toggle-knob"></span></span>
+          </label>
+          <label class="control-toggle">
+            <span class="control-label">Invert</span>
+            <input type="checkbox" id="invert" class="sr-only">
+            <span class="toggle-track"><span class="toggle-knob"></span></span>
+          </label>
+          <label class="control-toggle">
+            <span class="control-label">Mirror</span>
+            <input type="checkbox" id="mirror" class="sr-only" checked>
+            <span class="toggle-track"><span class="toggle-knob"></span></span>
+          </label>
+        </div>
       </div>
-      <div class="flex items-center gap-2">
-        <input id="invert" type="checkbox" class="h-4 w-4"> <label for="invert">Invert colors</label>
-      </div>
-      <button id="snapshotBtn" class="mt-4 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white">📸 Save snapshot</button>
-      <p class="text-xs opacity-60 pt-2">Snapshot triggers after a 3 s countdown.</p>
+
+      <button id="snapshot-btn" class="snapshot-btn">Save Snapshot</button>
+      <p class="hint">3-second countdown before capture</p>
+    </aside>
+
+    <div class="canvas-wrap" id="canvas-wrap">
+      <canvas id="ascii-canvas"></canvas>
     </div>
+  </main>
 
-    <!-- Canvas output -->
-    <canvas id="asciiCanvas" class="w-full h-auto rounded-xl shadow-lg"></canvas>
-  </div>
+  <div id="countdown-overlay" hidden></div>
+  <video id="video" hidden autoplay muted playsinline></video>
+  <canvas id="capture-canvas" hidden></canvas>
 
-  <!-- Countdown overlay -->
-  <div id="countdownOverlay" class="hidden fixed inset-0 z-50 flex items-center justify-center text-[8rem] font-extrabold text-white/90 bg-black/60 select-none"></div>
+  <footer>All processing is local — no frames leave your device.</footer>
 
-  <!-- Hidden media elements -->
-  <video id="video" class="hidden" autoplay muted playsinline></video>
-  <canvas id="captureCanvas" class="hidden"></canvas>
+  <script type="module">
+    const RAMP = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+    const RAMP_MAX = RAMP.length - 1;
+    const FONT_FAMILY = "ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace";
+    const FONT_SIZE = 10;
 
-  <footer class="text-xs opacity-60 mt-8 text-center w-full">Built with AI, ❤️ and JavaScript. No frames leave your machine.</footer>
+    const video = document.getElementById('video');
+    const capCanvas = document.getElementById('capture-canvas');
+    const asciiCanvas = document.getElementById('ascii-canvas');
+    const overlay = document.getElementById('countdown-overlay');
+    const snapshotBtn = document.getElementById('snapshot-btn');
 
-<script>
-/**
- * =========================================================
- * ASCII Cam — Canvas Edition (v1.0.0)
- * =========================================================
- * 
- * A real-time ASCII art webcam converter that runs entirely
- * in your browser. Transform your webcam feed into ASCII 
- * characters with adjustable settings.
- * 
- * Features:
- * - Efficient canvas-based rendering
- * - Adjustable brightness and contrast
- * - Optional color mode
- * - Invert colors option
- * - Snapshot functionality with countdown
- * 
- * Privacy: All processing happens locally in your browser.
- * No images are transmitted over the network.
- * 
- * MIT License
- * =========================================================
- */
+    const capCtx = capCanvas.getContext('2d', { willReadFrequently: true });
+    const asciiCtx = asciiCanvas.getContext('2d');
 
-// -------- Configuration Constants -------- //
-const CHARS_PER_ROW = 160;      // Number of characters per row (resolution)
-const FONT_PX       = 10;       // Font size in pixels
-const CHAR_W        = 6;        // Approximate glyph width in monospace font at 10px
-const PALETTE       = ' .`^",:;Il!i~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$';
+    // Measure actual monospace glyph width
+    asciiCtx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+    const GLYPH_W = Math.round(asciiCtx.measureText('M').width);
 
-/**
- * Maps brightness level to corresponding ASCII character
- * @param {number} l - Luminance value (0-255)
- * @returns {string} ASCII character representing the brightness
- */
-const GLYPH = l => PALETTE[Math.floor(l / 255 * (PALETTE.length - 1))];
+    const state = { detail: 160, brightness: 100, contrast: 100, color: false, invert: false, mirror: true };
+    let cols = 0, rows = 0, videoW = 0, videoH = 0, animId = 0;
 
-// -------- DOM Element References -------- //
-const ui = {
-  video  : document.getElementById('video'),
-  cap    : document.getElementById('captureCanvas'), // Hidden canvas for pixel sampling
-  ascii  : document.getElementById('asciiCanvas'),   // Visible canvas for rendering ASCII art
-  overlay: document.getElementById('countdownOverlay'),
-  snapBtn: document.getElementById('snapshotBtn'),
-  sliders: {
-    brightness: document.getElementById('brightness'),
-    contrast  : document.getElementById('contrast'),
-  },
-  toggles: {
-    color : document.getElementById('colorMode'),
-    invert: document.getElementById('invert'),
-  },
-  labels: {
-    brightness: document.getElementById('brightnessValue'),
-    contrast  : document.getElementById('contrastValue'),
-  }
-};
+    // --- Controls ---
+    function bindSlider(id, key, format) {
+      const input = document.getElementById(id);
+      const display = document.querySelector(`[data-for="${id}"]`);
+      const sync = () => {
+        state[key] = +input.value;
+        display.textContent = format(state[key]);
+        input.style.setProperty('--fill', `${((input.value - input.min) / (input.max - input.min)) * 100}%`);
+      };
+      input.addEventListener('input', sync);
+      sync();
+    }
 
-// Initialize canvas contexts
-const ctxCap   = ui.cap.getContext('2d');
-const ctxAscii = ui.ascii.getContext('2d');
-ctxAscii.font  = `${FONT_PX}px 'Fira Mono', monospace`;
-ctxAscii.textBaseline = 'top';
-ctxAscii.imageSmoothingEnabled = false;
+    function bindToggle(id, key) {
+      const input = document.getElementById(id);
+      state[key] = input.checked;
+      input.addEventListener('change', () => { state[key] = input.checked; });
+    }
 
-// -------- Application State -------- //
-const cfg = { brightness: 100, contrast: 100, color: false, invert: false };
+    bindSlider('detail', 'detail', v => String(v));
+    bindSlider('brightness', 'brightness', v => `${v}%`);
+    bindSlider('contrast', 'contrast', v => `${v}%`);
+    bindToggle('color-mode', 'color');
+    bindToggle('invert', 'invert');
+    bindToggle('mirror', 'mirror');
 
-// -------- Helper Functions -------- //
+    // --- Grid dimensions ---
+    function updateGrid() {
+      if (!videoW || !videoH) return;
+      cols = state.detail;
+      rows = Math.round(cols * (videoH / videoW) * (GLYPH_W / FONT_SIZE));
+      capCanvas.width = cols;
+      capCanvas.height = rows;
+      asciiCanvas.width = cols * GLYPH_W;
+      asciiCanvas.height = rows * FONT_SIZE;
+      asciiCtx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+      asciiCtx.textBaseline = 'top';
+    }
 
-/**
- * Applies brightness, contrast, and inversion to RGB values
- * @param {Array} rgb - Array of [r,g,b] values (0-255)
- * @returns {Array} - Processed [r,g,b] values
- */
-function tune([r, g, b]) {
-  const br = cfg.brightness / 100, ct = cfg.contrast / 100;
-  r = ((r - 128) * ct + 128) * br;
-  g = ((g - 128) * ct + 128) * br;
-  b = ((b - 128) * ct + 128) * br;
-  if (cfg.invert) { r = 255 - r; g = 255 - g; b = 255 - b; }
-  return [r, g, b];
-}
+    // --- Render ---
+    function render() {
+      if (video.readyState < 2) { animId = requestAnimationFrame(render); return; }
 
-/**
- * Updates configuration from UI controls
- */
-function syncControls() {
-  cfg.brightness = +ui.sliders.brightness.value;
-  cfg.contrast   = +ui.sliders.contrast.value;
-  cfg.color      = ui.toggles.color.checked;
-  cfg.invert     = ui.toggles.invert.checked;
-  ui.labels.brightness.textContent = cfg.brightness + '%';
-  ui.labels.contrast.textContent   = cfg.contrast   + '%';
-}
-
-// Set up UI control event listeners
-['brightness','contrast'].forEach(k => ui.sliders[k].oninput = syncControls);
-['color','invert'].forEach(k => ui.toggles[k].onchange = syncControls);
-
-// -------- Main Rendering Loop -------- //
-let rows = 0;
-
-/**
- * Main rendering function that processes video frames
- * and converts them to ASCII art
- */
-function render() {
-  if (ui.video.readyState >= 2) {
-    const vw = ui.video.videoWidth, vh = ui.video.videoHeight;
-    if (vw && vh) {
-      ui.cap.width = vw; ui.cap.height = vh;
-      ctxCap.drawImage(ui.video, 0, 0, vw, vh);
-
-      const cellH = (vw / CHARS_PER_ROW) * 2;   // Maintain aspect ratio
-      rows = Math.floor(vh / cellH);
-
-      // Resize visible canvas to match glyph grid (device pixels)
-      const canvasW = CHARS_PER_ROW * CHAR_W;
-      const canvasH = rows * FONT_PX;
-      if (ui.ascii.width !== canvasW || ui.ascii.height !== canvasH) {
-        ui.ascii.width  = canvasW;
-        ui.ascii.height = canvasH;
-        ctxAscii.font = `${FONT_PX}px 'Fira Mono', monospace`;
+      if (video.videoWidth !== videoW || video.videoHeight !== videoH) {
+        videoW = video.videoWidth;
+        videoH = video.videoHeight;
+        updateGrid();
       }
+      if (cols !== state.detail) updateGrid();
 
-      const img = ctxCap.getImageData(0,0,vw,vh).data;
-      ctxAscii.clearRect(0, 0, canvasW, canvasH);
+      // Draw video scaled to grid size — browser bilinear interpolation does area averaging
+      capCtx.save();
+      capCtx.filter = `brightness(${state.brightness}%) contrast(${state.contrast}%)${state.invert ? ' invert(1)' : ''}`;
+      if (state.mirror) { capCtx.translate(cols, 0); capCtx.scale(-1, 1); }
+      capCtx.drawImage(video, 0, 0, cols, rows);
+      capCtx.restore();
 
-      // Process each cell in the grid
-      for (let y = 0; y < rows; y++) {
-        for (let x = 0; x < CHARS_PER_ROW; x++) {
-          const px = (x * vw / CHARS_PER_ROW) | 0;
-          const py = (y * vh / rows) | 0;
-          const idx = (py * vw + px) * 4;
-          let [r,g,b] = tune([img[idx], img[idx+1], img[idx+2]]);
-          
-          // Calculate luminance using standard formula
-          const lum = 0.2126*r + 0.7152*g + 0.0722*b;
-          const ch  = GLYPH(lum);
-          
-          // Set fill style based on color mode
-          if (cfg.color) ctxAscii.fillStyle = `rgb(${r|0},${g|0},${b|0})`;
-          else           ctxAscii.fillStyle = '#ffffff';
-          
-          ctxAscii.fillText(ch, x*CHAR_W, y*FONT_PX);
+      const { data } = capCtx.getImageData(0, 0, cols, rows);
+      const ctx = asciiCtx;
+      ctx.clearRect(0, 0, asciiCanvas.width, asciiCanvas.height);
+
+      if (state.color) {
+        for (let y = 0; y < rows; y++) {
+          for (let x = 0; x < cols; x++) {
+            const i = (y * cols + x) << 2;
+            const r = data[i], g = data[i + 1], b = data[i + 2];
+            const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            ctx.fillStyle = `rgb(${r},${g},${b})`;
+            ctx.fillText(RAMP[(lum / 255 * RAMP_MAX + 0.5) | 0], x * GLYPH_W, y * FONT_SIZE);
+          }
+        }
+      } else {
+        ctx.fillStyle = '#f5f5f7';
+        for (let y = 0; y < rows; y++) {
+          let line = '';
+          const base = y * cols << 2;
+          for (let x = 0; x < cols; x++) {
+            const i = base + (x << 2);
+            const lum = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+            line += RAMP[(lum / 255 * RAMP_MAX + 0.5) | 0];
+          }
+          ctx.fillText(line, 0, y * FONT_SIZE);
         }
       }
+
+      animId = requestAnimationFrame(render);
     }
-  }
-  requestAnimationFrame(render);
-}
 
-// -------- Snapshot Functionality -------- //
-ui.snapBtn.addEventListener('click', () => countdown(3));
+    // --- Snapshot ---
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-/**
- * Starts countdown before taking snapshot
- * @param {number} t - Countdown seconds
- */
-function countdown(t) {
-  ui.snapBtn.disabled = true;
-  ui.overlay.textContent = t;
-  ui.overlay.classList.remove('hidden');
-  const iv = setInterval(() => {
-    t--;
-    if (t === 0) {
-      clearInterval(iv);
-      ui.overlay.classList.add('hidden');
-      savePNG();
-      ui.snapBtn.disabled = false;
-    } else {
-      ui.overlay.textContent = t;
-    }
-  }, 1000);
-}
+    snapshotBtn.addEventListener('click', async () => {
+      snapshotBtn.disabled = true;
+      overlay.hidden = false;
+      for (let t = 3; t >= 1; t--) { overlay.textContent = t; await wait(1000); }
+      overlay.hidden = true;
+      await savePNG();
+      snapshotBtn.disabled = false;
+    });
 
-/**
- * Saves current canvas output as PNG image
- * Tries to use modern File System Access API with fallback
- */
-async function savePNG() {
-  // Convert canvas to PNG blob
-  ui.ascii.toBlob(async blob => {
-    if (!blob) return;
-    
-    // Try File System Access API (modern browsers)
-    if (window.showSaveFilePicker) {
-      try {
-        const h = await showSaveFilePicker({ 
-          suggestedName: 'ascii-snapshot.png', 
-          types: [{ description: 'PNG', accept: { 'image/png': ['.png'] } }] 
-        });
-        const w = await h.createWritable(); 
-        await w.write(blob); 
-        await w.close(); 
-        return;
-      } catch(e) { 
-        // Silently fall through to fallback method
+    async function savePNG() {
+      const blob = await new Promise(resolve => asciiCanvas.toBlob(resolve, 'image/png'));
+      if (!blob) return;
+
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await showSaveFilePicker({
+            suggestedName: `ascii-${Date.now()}.png`,
+            types: [{ description: 'PNG Image', accept: { 'image/png': ['.png'] } }],
+          });
+          const w = await handle.createWritable();
+          await w.write(blob);
+          await w.close();
+          return;
+        } catch { /* user cancelled or API unavailable */ }
       }
-    }
-    
-    // Fallback download method (older browsers)
-    const url = URL.createObjectURL(blob); 
-    const a = document.createElement('a');
-    a.href = url; 
-    a.download = 'ascii-snapshot.png'; 
-    document.body.appendChild(a); 
-    a.click();
-    
-    // Clean up resources
-    setTimeout(() => { 
-      URL.revokeObjectURL(url); 
-      a.remove(); 
-    }, 1000);
-  }, 'image/png');
-}
 
-// -------- Initialize Application -------- //
-(async () => {
-  try {
-    // Request webcam access
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    ui.video.srcObject = stream; 
-    await ui.video.play(); 
-    
-    // Set up UI and start rendering
-    syncControls(); 
-    requestAnimationFrame(render);
-  } catch(err) {
-    // Handle webcam access errors
-    ctxAscii.fillStyle = '#fff'; 
-    ctxAscii.fillText('🚫 ' + err.message, 10, 10);
-    console.error('Webcam access error:', err);
-  }
-})();
-</script>
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ascii-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // --- Lifecycle ---
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) cancelAnimationFrame(animId);
+      else animId = requestAnimationFrame(render);
+    });
+
+    // --- Init ---
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        audio: false,
+      });
+      video.srcObject = stream;
+      await video.play();
+      animId = requestAnimationFrame(render);
+    } catch (err) {
+      document.getElementById('canvas-wrap').innerHTML =
+        `<div class="error-message">Camera access denied or unavailable.<br>${err.message}</div>`;
+    }
+  </script>
 </body>
 </html>

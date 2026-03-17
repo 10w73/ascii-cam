@@ -8,42 +8,46 @@ A real-time ASCII art webcam converter that runs entirely in your browser. Trans
 
 ## Features
 
-- 🖥️ **Real-time conversion** of webcam feed to ASCII art
-- 🎨 **Adjustable settings**:
-  - Brightness
-  - Contrast
+- **Real-time conversion** of webcam feed to ASCII art
+- **Adjustable controls**:
+  - Detail (character resolution: 60–300 columns)
+  - Brightness and contrast (GPU-accelerated via canvas filters)
   - Color mode
   - Invert colors
-- 📸 **Snapshot functionality** with countdown timer
-- 💾 **Local saving** of ASCII snapshots as PNG images
-- 🔒 **Privacy-focused**: All processing happens locally - no data leaves your device
+  - Mirror toggle (default on)
+- **Snapshot** with 3-second countdown and File System Access API support
+- **Privacy-focused**: all processing is local — no frames leave your device
 
 ## How It Works
 
-ASCII Cam captures your webcam feed and converts each frame into ASCII characters based on pixel brightness. The application uses HTML5 Canvas for rendering, providing efficient performance even in color mode.
+1. The webcam feed is drawn onto a hidden capture canvas **scaled down to grid dimensions** (e.g. 160×45 instead of 1280×720). The browser's bilinear interpolation provides area-averaged color per cell for free.
+2. Brightness, contrast and invert are applied as `CanvasRenderingContext2D.filter` — GPU-accelerated, no per-pixel math.
+3. The small `ImageData` buffer is read and each pixel is mapped to an ASCII character via a 70-level density ramp.
+4. In monochrome mode, entire rows are batched into single `fillText` calls for fewer draw operations.
 
 ## Usage
 
-1. Visit the [ASCII Cam](https://10w73.github.io/ascii-cam/) website
-2. Allow access to your webcam when prompted
-3. Adjust settings as desired:
-   - Move sliders to change brightness and contrast
-   - Toggle color mode or invert colors
-4. Click "Save snapshot" to capture an image with a 3-second countdown
+1. Visit [ASCII Cam](https://10w73.github.io/ascii-cam/)
+2. Allow webcam access when prompted
+3. Adjust sliders and toggles in the sidebar
+4. Click **Save Snapshot** to capture a PNG with a 3-second countdown
 
-## Technical Implementation
+## Technical Details
 
-- Pure JavaScript, HTML, and CSS - no external dependencies except TailwindCSS
-- Canvas-based rendering for optimal performance
-- File System Access API for modern browsers, with fallback download mechanism
+- Zero external dependencies — pure HTML, CSS and JavaScript (ES module)
+- Apple-native dark UI (system font stack, iOS-style grouped controls and toggle switches)
+- `willReadFrequently` hint on capture context for optimal `getImageData` performance
+- `visibilitychange` listener pauses rendering when the tab is hidden
+- Responsive layout (sidebar + canvas on desktop, stacked on mobile)
+- Accessible: screen-reader-friendly toggles, `focus-visible` outlines
 
 ## Local Development
 
-1. Clone this repository:
-   ```
-   git clone https://github.com/10w73/ascii-cam.git
-   ```
-2. Open `ascii-cam.html` in your browser
+```sh
+git clone https://github.com/10w73/ascii-cam.git
+```
+
+Open `ascii-cam.html` in any modern browser — no build step required.
 
 ## License
 
