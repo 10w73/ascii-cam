@@ -29,19 +29,19 @@
       --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
     }
 
-    html, body { height: 100%; }
-
     body {
       font-family: var(--font);
       background: var(--bg);
       color: var(--text);
-      display: flex;
-      flex-direction: column;
       min-height: 100dvh;
+    }
+    @media (min-width: 769px) {
+      html, body { height: 100%; }
+      body { display: flex; flex-direction: column; }
     }
 
     /* Header */
-    header { flex-shrink: 0; padding: 14px 20px; text-align: center; }
+    header { padding: 14px 20px; text-align: center; }
     header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
 
     /* Main layout */
@@ -56,13 +56,11 @@
     }
     @media (max-width: 768px) {
       main {
-        flex: 0 1 auto;
-        grid-template-columns: 1fr;
-        grid-template-rows: auto auto;
+        display: flex;
+        flex-direction: column;
         overflow: visible;
       }
       .canvas-wrap { order: -1; }
-      .sidebar { overflow-y: visible; }
     }
 
     /* Sidebar */
@@ -72,6 +70,9 @@
       gap: 16px;
       overflow-y: auto;
       width: 100%;
+    }
+    @media (max-width: 768px) {
+      .sidebar { overflow-y: visible; }
     }
 
     .group-title {
@@ -273,7 +274,6 @@
 
     /* Footer */
     footer {
-      flex-shrink: 0;
       padding: 12px 20px;
       text-align: center;
       font-size: 12px;

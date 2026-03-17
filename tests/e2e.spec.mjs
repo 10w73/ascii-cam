@@ -309,11 +309,11 @@ test.describe('Layout: iPhone 16 Pro portrait (402×874)', () => {
   });
   test.afterAll(async () => { await ctx?.close(); });
 
-  test('single-column layout', async () => {
-    const cols = await page.locator('main').evaluate(
-      el => getComputedStyle(el).gridTemplateColumns
+  test('single-column flex layout', async () => {
+    const display = await page.locator('main').evaluate(
+      el => getComputedStyle(el).display
     );
-    expect(cols.split(' ').filter(s => s).length).toBe(1);
+    expect(display).toBe('flex');
   });
 
   test('canvas appears above controls', async () => {
@@ -337,7 +337,6 @@ test.describe('Layout: iPhone 16 Pro portrait (402×874)', () => {
         mainW: main.getBoundingClientRect().width,
       };
     });
-    // Control group should be at least 80% of main width (accounting for padding)
     expect(data.groupW).toBeGreaterThan(data.mainW * 0.8);
   });
 
@@ -356,6 +355,7 @@ test.describe('Layout: iPhone 16 Pro portrait (402×874)', () => {
   });
 
   test('snapshot button is full-width', async () => {
+    await page.locator('#snapshot-btn').scrollIntoViewIfNeeded();
     const data = await page.evaluate(() => {
       const btn = document.getElementById('snapshot-btn');
       const sidebar = document.querySelector('.sidebar');
@@ -365,6 +365,44 @@ test.describe('Layout: iPhone 16 Pro portrait (402×874)', () => {
       };
     });
     expect(data.btnW).toBeGreaterThan(data.sidebarW * 0.9);
+  });
+
+  test('page scrolls to reveal all controls', async () => {
+    // All these must be scrollable-to and visible
+    for (const sel of ['#detail', '#brightness', '#contrast', '#color-mode', '#invert', '#mirror', '#snapshot-btn']) {
+      const el = page.locator(sel);
+      await el.scrollIntoViewIfNeeded();
+      await expect(el).toBeAttached();
+    }
+  });
+
+  test('footer is reachable by scrolling', async () => {
+    const footer = page.locator('footer');
+    await footer.scrollIntoViewIfNeeded();
+    await expect(footer).toBeVisible();
+  });
+
+  test('page has vertical scroll (content taller than viewport)', async () => {
+    const data = await page.evaluate(() => ({
+      scrollH: document.documentElement.scrollHeight,
+      clientH: document.documentElement.clientHeight,
+    }));
+    // Content should be taller than the viewport on mobile portrait
+    expect(data.scrollH).toBeGreaterThan(data.clientH);
+  });
+
+  test('only body scrolls (no nested scrollbars)', async () => {
+    const nestedScroll = await page.evaluate(() => {
+      // Check that main and sidebar are not independently scrollable
+      const main = document.querySelector('main');
+      const sidebar = document.querySelector('.sidebar');
+      return {
+        mainOverflow: getComputedStyle(main).overflow,
+        sidebarOverflow: getComputedStyle(sidebar).overflowY,
+      };
+    });
+    expect(nestedScroll.mainOverflow).toBe('visible');
+    expect(nestedScroll.sidebarOverflow).toBe('visible');
   });
 });
 
