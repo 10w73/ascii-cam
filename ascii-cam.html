@@ -29,38 +29,48 @@
       --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
     }
 
+    html, body { height: 100%; }
+
     body {
       font-family: var(--font);
       background: var(--bg);
       color: var(--text);
+      display: flex;
+      flex-direction: column;
       min-height: 100dvh;
-      display: grid;
-      grid-template-rows: auto 1fr auto;
     }
 
     /* Header */
-    header { padding: 16px 20px; text-align: center; }
+    header { flex-shrink: 0; padding: 14px 20px; text-align: center; }
     header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
 
     /* Main layout */
     main {
+      flex: 1;
       display: grid;
       grid-template-columns: 300px 1fr;
       gap: 20px;
       padding: 0 20px 20px;
       min-height: 0;
+      overflow: hidden;
     }
     @media (max-width: 768px) {
       main {
         grid-template-columns: 1fr;
         grid-template-rows: auto 1fr;
+        overflow: auto;
       }
       .canvas-wrap { order: -1; }
-      .sidebar { align-items: center; }
     }
 
     /* Sidebar */
-    .sidebar { display: flex; flex-direction: column; gap: 16px; overflow-y: auto; max-width: 480px; width: 100%; }
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+      width: 100%;
+    }
 
     .group-title {
       font-size: 13px;
@@ -230,6 +240,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      width: 100%;
       height: 100%;
       min-height: 200px;
       font-size: 17px;
@@ -260,6 +271,7 @@
 
     /* Footer */
     footer {
+      flex-shrink: 0;
       padding: 12px 20px;
       text-align: center;
       font-size: 12px;
@@ -408,8 +420,12 @@
       cols = state.detail;
 
       // Compute rows from video aspect ratio
-      const videoAspect = videoW / videoH;
-      rows = Math.round(cols / videoAspect / GLYPH_RATIO);
+      // Rendered pixel size: W = cols * glyphW = cols * fontSize * GLYPH_RATIO
+      //                       H = rows * fontSize
+      // For correct aspect: W/H = videoW/videoH
+      //   => (cols * GLYPH_RATIO) / rows = videoW / videoH
+      //   => rows = cols * GLYPH_RATIO * videoH / videoW
+      rows = Math.round(cols * GLYPH_RATIO * videoH / videoW);
 
       // Fit into container preserving aspect ratio
       fontSize = wrapW / (cols * GLYPH_RATIO);
