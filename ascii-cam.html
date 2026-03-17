@@ -53,13 +53,14 @@
     @media (max-width: 768px) {
       main {
         grid-template-columns: 1fr;
-        grid-template-rows: 1fr auto;
+        grid-template-rows: auto 1fr;
       }
       .canvas-wrap { order: -1; }
+      .sidebar { align-items: center; }
     }
 
     /* Sidebar */
-    .sidebar { display: flex; flex-direction: column; gap: 16px; overflow-y: auto; max-width: 480px; }
+    .sidebar { display: flex; flex-direction: column; gap: 16px; overflow-y: auto; max-width: 480px; width: 100%; }
 
     .group-title {
       font-size: 13px;
@@ -212,6 +213,9 @@
 
     /* Canvas area */
     .canvas-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
       min-height: 0;
       overflow: hidden;
       border-radius: var(--radius);
@@ -219,9 +223,6 @@
     }
     #ascii-canvas {
       display: block;
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
     }
 
     /* Error state */
@@ -401,18 +402,38 @@
     bindToggle('invert', 'invert');
     bindToggle('mirror', 'mirror');
 
-    // --- Grid dimensions (canvas fills container, font adapts) ---
+    // --- Grid dimensions (fit video aspect ratio into container) ---
     function updateGrid() {
       if (!videoW || !videoH || !wrapW || !wrapH) return;
       cols = state.detail;
+
+      // Compute rows from video aspect ratio
+      const videoAspect = videoW / videoH;
+      rows = Math.round(cols / videoAspect / GLYPH_RATIO);
+
+      // Fit into container preserving aspect ratio
       fontSize = wrapW / (cols * GLYPH_RATIO);
       glyphW = fontSize * GLYPH_RATIO;
-      rows = Math.floor(wrapH / fontSize);
+      let fitW = cols * glyphW;
+      let fitH = rows * fontSize;
+
+      if (fitH > wrapH) {
+        const scale = wrapH / fitH;
+        fontSize *= scale;
+        glyphW = fontSize * GLYPH_RATIO;
+        fitW = cols * glyphW;
+        fitH = rows * fontSize;
+      }
+
       capCanvas.width = cols;
       capCanvas.height = rows;
 
-      asciiCanvas.width = Math.round(wrapW * DPR);
-      asciiCanvas.height = Math.round(wrapH * DPR);
+      const pxW = Math.round(fitW * DPR);
+      const pxH = Math.round(fitH * DPR);
+      asciiCanvas.width = pxW;
+      asciiCanvas.height = pxH;
+      asciiCanvas.style.width = Math.round(fitW) + 'px';
+      asciiCanvas.style.height = Math.round(fitH) + 'px';
       asciiCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
       asciiCtx.font = `${fontSize}px ${FONT_FAMILY}`;
       asciiCtx.textBaseline = 'top';
@@ -449,7 +470,7 @@
 
       const { data } = capCtx.getImageData(0, 0, cols, rows);
       const ctx = asciiCtx;
-      ctx.clearRect(0, 0, wrapW, wrapH);
+      ctx.clearRect(0, 0, cols * glyphW, rows * fontSize);
 
       if (state.color) {
         for (let y = 0; y < rows; y++) {
