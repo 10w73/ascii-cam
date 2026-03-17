@@ -212,20 +212,16 @@
 
     /* Canvas area */
     .canvas-wrap {
-      display: flex;
-      align-items: start;
-      justify-content: center;
       min-height: 0;
-      overflow: auto;
+      overflow: hidden;
       border-radius: var(--radius);
       background: #000;
     }
     #ascii-canvas {
       display: block;
-      max-width: 100%;
-      height: auto;
-      image-rendering: pixelated;
-      image-rendering: -webkit-optimize-contrast;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
     }
 
     /* Error state */
@@ -353,24 +349,31 @@
     const RAMP = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
     const RAMP_MAX = RAMP.length - 1;
     const FONT_FAMILY = "ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace";
-    const FONT_SIZE = 10;
+    const REF_FONT_SIZE = 10;
+
+    // Mode-dependent base values: slider 100% maps to these filter percentages
+    const BASE = {
+      mono:  { brightness: 115, contrast: 130 },
+      color: { brightness: 125, contrast: 59  },
+    };
 
     const video = document.getElementById('video');
     const capCanvas = document.getElementById('capture-canvas');
     const asciiCanvas = document.getElementById('ascii-canvas');
+    const canvasWrap = document.getElementById('canvas-wrap');
     const overlay = document.getElementById('countdown-overlay');
     const snapshotBtn = document.getElementById('snapshot-btn');
 
     const capCtx = capCanvas.getContext('2d', { willReadFrequently: true });
     const asciiCtx = asciiCanvas.getContext('2d');
 
-    // Measure actual monospace glyph width
-    asciiCtx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
-    const GLYPH_W = Math.round(asciiCtx.measureText('M').width);
+    // Measure glyph aspect ratio (width:height) at a reference size
+    asciiCtx.font = `${REF_FONT_SIZE}px ${FONT_FAMILY}`;
+    const GLYPH_RATIO = asciiCtx.measureText('M').width / REF_FONT_SIZE;
 
     const DPR = Math.min(window.devicePixelRatio || 1, 2);
     const state = { detail: 160, brightness: 100, contrast: 100, color: false, invert: false, mirror: true };
-    let cols = 0, rows = 0, videoW = 0, videoH = 0, animId = 0;
+    let cols = 0, rows = 0, fontSize = 0, glyphW = 0, videoW = 0, videoH = 0, animId = 0, wrapW = 0, wrapH = 0;
 
     // --- Controls ---
     function bindSlider(id, key, format) {
@@ -398,24 +401,29 @@
     bindToggle('invert', 'invert');
     bindToggle('mirror', 'mirror');
 
-    // --- Grid dimensions ---
+    // --- Grid dimensions (canvas fills container, font adapts) ---
     function updateGrid() {
-      if (!videoW || !videoH) return;
+      if (!videoW || !videoH || !wrapW || !wrapH) return;
       cols = state.detail;
-      rows = Math.round(cols * (videoH / videoW) * (GLYPH_W / FONT_SIZE));
+      fontSize = wrapW / (cols * GLYPH_RATIO);
+      glyphW = fontSize * GLYPH_RATIO;
+      rows = Math.floor(wrapH / fontSize);
       capCanvas.width = cols;
       capCanvas.height = rows;
 
-      const cssW = cols * GLYPH_W;
-      const cssH = rows * FONT_SIZE;
-      asciiCanvas.width = cssW * DPR;
-      asciiCanvas.height = cssH * DPR;
-      asciiCanvas.style.width = cssW + 'px';
-      asciiCanvas.style.height = cssH + 'px';
+      asciiCanvas.width = Math.round(wrapW * DPR);
+      asciiCanvas.height = Math.round(wrapH * DPR);
       asciiCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
-      asciiCtx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+      asciiCtx.font = `${fontSize}px ${FONT_FAMILY}`;
       asciiCtx.textBaseline = 'top';
     }
+
+    // Track container size
+    new ResizeObserver(([e]) => {
+      wrapW = e.contentRect.width;
+      wrapH = e.contentRect.height;
+      if (videoW) updateGrid();
+    }).observe(canvasWrap);
 
     // --- Render ---
     function render() {
@@ -428,18 +436,20 @@
       }
       if (cols !== state.detail) updateGrid();
 
-      // Draw video scaled to grid size — browser bilinear interpolation does area averaging
+      // Compute effective filter values from slider + mode-dependent base
+      const base = state.color ? BASE.color : BASE.mono;
+      const effBri = Math.round(state.brightness * base.brightness / 100);
+      const effCon = Math.round(state.contrast * base.contrast / 100);
+
       capCtx.save();
-      capCtx.filter = `brightness(${state.brightness}%) contrast(${state.contrast}%)${state.invert ? ' invert(1)' : ''}`;
+      capCtx.filter = `brightness(${effBri}%) contrast(${effCon}%)${state.invert ? ' invert(1)' : ''}`;
       if (state.mirror) { capCtx.translate(cols, 0); capCtx.scale(-1, 1); }
       capCtx.drawImage(video, 0, 0, cols, rows);
       capCtx.restore();
 
       const { data } = capCtx.getImageData(0, 0, cols, rows);
       const ctx = asciiCtx;
-      const logicalW = cols * GLYPH_W;
-      const logicalH = rows * FONT_SIZE;
-      ctx.clearRect(0, 0, logicalW, logicalH);
+      ctx.clearRect(0, 0, wrapW, wrapH);
 
       if (state.color) {
         for (let y = 0; y < rows; y++) {
@@ -448,20 +458,20 @@
             const r = data[i], g = data[i + 1], b = data[i + 2];
             const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
             ctx.fillStyle = `rgb(${r},${g},${b})`;
-            ctx.fillText(RAMP[(lum / 255 * RAMP_MAX + 0.5) | 0], x * GLYPH_W, y * FONT_SIZE);
+            ctx.fillText(RAMP[(lum / 255 * RAMP_MAX + 0.5) | 0], x * glyphW, y * fontSize);
           }
         }
       } else {
         ctx.fillStyle = '#f5f5f7';
         for (let y = 0; y < rows; y++) {
           let line = '';
-          const base = y * cols << 2;
+          const rowBase = y * cols << 2;
           for (let x = 0; x < cols; x++) {
-            const i = base + (x << 2);
+            const i = rowBase + (x << 2);
             const lum = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
             line += RAMP[(lum / 255 * RAMP_MAX + 0.5) | 0];
           }
-          ctx.fillText(line, 0, y * FONT_SIZE);
+          ctx.fillText(line, 0, y * fontSize);
         }
       }
 
