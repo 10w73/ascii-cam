@@ -1,0 +1,24 @@
+{
+  "name": "ascii-cam",
+  "version": "1.0.0",
+  "description": "A real-time ASCII art webcam converter that runs entirely in your browser. Transform your webcam feed into ASCII characters with adjustable settings and snapshot capabilities.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/10w73/ascii-cam.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/10w73/ascii-cam/issues"
+  },
+  "homepage": "https://github.com/10w73/ascii-cam#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "playwright": "^1.58.2"
+  }
+}

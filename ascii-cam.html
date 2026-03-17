@@ -51,11 +51,15 @@
       min-height: 0;
     }
     @media (max-width: 768px) {
-      main { grid-template-columns: 1fr; }
+      main {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr auto;
+      }
+      .canvas-wrap { order: -1; }
     }
 
     /* Sidebar */
-    .sidebar { display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+    .sidebar { display: flex; flex-direction: column; gap: 16px; overflow-y: auto; max-width: 480px; }
 
     .group-title {
       font-size: 13px;
@@ -212,15 +216,16 @@
       align-items: start;
       justify-content: center;
       min-height: 0;
-      overflow: hidden;
+      overflow: auto;
       border-radius: var(--radius);
       background: #000;
     }
     #ascii-canvas {
-      width: 100%;
+      display: block;
+      max-width: 100%;
       height: auto;
       image-rendering: pixelated;
-      display: block;
+      image-rendering: -webkit-optimize-contrast;
     }
 
     /* Error state */
@@ -242,7 +247,7 @@
       position: fixed;
       inset: 0;
       z-index: 100;
-      display: flex;
+      display: none;
       align-items: center;
       justify-content: center;
       background: rgba(0,0,0,0.6);
@@ -254,6 +259,7 @@
       -webkit-user-select: none;
       user-select: none;
     }
+    #countdown-overlay.visible { display: flex; }
 
     /* Footer */
     footer {
@@ -337,7 +343,7 @@
     </div>
   </main>
 
-  <div id="countdown-overlay" hidden></div>
+  <div id="countdown-overlay"></div>
   <video id="video" hidden autoplay muted playsinline></video>
   <canvas id="capture-canvas" hidden></canvas>
 
@@ -362,6 +368,7 @@
     asciiCtx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
     const GLYPH_W = Math.round(asciiCtx.measureText('M').width);
 
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
     const state = { detail: 160, brightness: 100, contrast: 100, color: false, invert: false, mirror: true };
     let cols = 0, rows = 0, videoW = 0, videoH = 0, animId = 0;
 
@@ -398,8 +405,14 @@
       rows = Math.round(cols * (videoH / videoW) * (GLYPH_W / FONT_SIZE));
       capCanvas.width = cols;
       capCanvas.height = rows;
-      asciiCanvas.width = cols * GLYPH_W;
-      asciiCanvas.height = rows * FONT_SIZE;
+
+      const cssW = cols * GLYPH_W;
+      const cssH = rows * FONT_SIZE;
+      asciiCanvas.width = cssW * DPR;
+      asciiCanvas.height = cssH * DPR;
+      asciiCanvas.style.width = cssW + 'px';
+      asciiCanvas.style.height = cssH + 'px';
+      asciiCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
       asciiCtx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
       asciiCtx.textBaseline = 'top';
     }
@@ -424,7 +437,9 @@
 
       const { data } = capCtx.getImageData(0, 0, cols, rows);
       const ctx = asciiCtx;
-      ctx.clearRect(0, 0, asciiCanvas.width, asciiCanvas.height);
+      const logicalW = cols * GLYPH_W;
+      const logicalH = rows * FONT_SIZE;
+      ctx.clearRect(0, 0, logicalW, logicalH);
 
       if (state.color) {
         for (let y = 0; y < rows; y++) {
@@ -458,9 +473,9 @@
 
     snapshotBtn.addEventListener('click', async () => {
       snapshotBtn.disabled = true;
-      overlay.hidden = false;
+      overlay.classList.add('visible');
       for (let t = 3; t >= 1; t--) { overlay.textContent = t; await wait(1000); }
-      overlay.hidden = true;
+      overlay.classList.remove('visible');
       await savePNG();
       snapshotBtn.disabled = false;
     });
