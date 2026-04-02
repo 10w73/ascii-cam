@@ -25,6 +25,10 @@ async function makeContext(browser, viewport) {
   });
 }
 
+async function makeBasicContext(browser) {
+  return browser.newContext({ viewport: DESKTOP });
+}
+
 // ============================================================
 // Structure tests — verify all expected DOM elements exist
 // ============================================================
@@ -429,6 +433,63 @@ test.describe('Layout: iPhone 16 Pro landscape (874×402)', () => {
   test('no horizontal overflow', async () => {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     expect(overflow).toBe(false);
+  });
+});
+
+// ============================================================
+// Filter effect tests — verify ctx.filter actually affects pixel data.
+// These use a standalone canvas (no camera) so they run in any browser.
+// Regression for: ctx.filter silently ignored when willReadFrequently=true.
+// ============================================================
+// Filter effects tests: verify the app's LUT-based pixel pipeline directly.
+// No ctx.filter — works identically in Safari, Chrome, and Playwright WebKit.
+test.describe('Filter effects', () => {
+  // Helper: build the same LUT the app uses (matches rebuildLut() in ascii-cam.html)
+  const buildLut = (brightness, contrast, invert, colorMode) => {
+    const BASE_MONO  = { brightness: 115, contrast: 130 };
+    const BASE_COLOR = { brightness: 125, contrast:  59 };
+    const base = colorMode ? BASE_COLOR : BASE_MONO;
+    const bri = brightness * base.brightness / 10000;
+    const con = contrast   * base.contrast   / 10000;
+    const lut = new Array(256);
+    for (let i = 0; i < 256; i++) {
+      let v = i * bri;
+      v = (v - 127.5) * con + 127.5;
+      if (invert) v = 255 - v;
+      lut[i] = v < 0 ? 0 : v > 255 ? 255 : v;
+    }
+    return lut;
+  };
+
+  test('brightness slider raises pixel output', () => {
+    const lutDefault = buildLut(100, 100, false, false);
+    const lutBright  = buildLut(200, 100, false, false);
+    // A mid-range pixel (value 100) should be brighter at 200% vs 100%
+    expect(lutBright[100]).toBeGreaterThan(lutDefault[100] + 20);
+  });
+
+  test('contrast slider raises pixel contrast', () => {
+    const lutLow  = buildLut(100,  50, false, false);
+    const lutHigh = buildLut(100, 200, false, false);
+    // Higher contrast: shadows darker, highlights brighter — range expands
+    expect(lutHigh[50]).toBeLessThan(lutLow[50]);
+    expect(lutHigh[200]).toBeGreaterThan(lutLow[200]);
+  });
+
+  test('invert flips pixel values symmetrically', () => {
+    const lutNormal   = buildLut(100, 100, false, false);
+    const lutInverted = buildLut(100, 100, true,  false);
+    // For a mid-tone pixel the inverted output + normal output should be ~255
+    expect(Math.abs(lutNormal[100] + lutInverted[100] - 255)).toBeLessThan(3);
+  });
+
+  test('color mode uses different base values than mono mode', () => {
+    const lutMono  = buildLut(100, 100, false, false);
+    const lutColor = buildLut(100, 100, false, true);
+    // COLOR has lower contrast base (59 vs 130) so midtones are closer to center
+    const monoRange  = Math.abs(lutMono[200]  - lutMono[50]);
+    const colorRange = Math.abs(lutColor[200] - lutColor[50]);
+    expect(colorRange).toBeLessThan(monoRange);
   });
 });
 

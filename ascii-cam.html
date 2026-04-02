@@ -379,7 +379,7 @@
     const overlay = document.getElementById('countdown-overlay');
     const snapshotBtn = document.getElementById('snapshot-btn');
 
-    const capCtx = capCanvas.getContext('2d', { willReadFrequently: true });
+    const capCtx = capCanvas.getContext('2d');
     const asciiCtx = asciiCanvas.getContext('2d');
 
     // Measure glyph aspect ratio (width:height) at a reference size
@@ -390,12 +390,30 @@
     const state = { detail: 160, brightness: 100, contrast: 100, color: false, invert: false, mirror: true };
     let cols = 0, rows = 0, fontSize = 0, glyphW = 0, videoW = 0, videoH = 0, animId = 0, wrapW = 0, wrapH = 0;
 
+    // LUT: maps raw pixel value → adjusted value. Rebuilt only when sliders/toggles change.
+    const lut = new Uint8ClampedArray(256);
+    let lutDirty = true;
+
+    function rebuildLut() {
+      const base = state.color ? BASE.color : BASE.mono;
+      const bri = state.brightness * base.brightness / 10000;
+      const con = state.contrast  * base.contrast  / 10000;
+      for (let i = 0; i < 256; i++) {
+        let v = i * bri;
+        v = (v - 127.5) * con + 127.5;
+        if (state.invert) v = 255 - v;
+        lut[i] = v < 0 ? 0 : v > 255 ? 255 : v;
+      }
+      lutDirty = false;
+    }
+
     // --- Controls ---
     function bindSlider(id, key, format) {
       const input = document.getElementById(id);
       const display = document.querySelector(`[data-for="${id}"]`);
       const sync = () => {
         state[key] = +input.value;
+        if (key === 'brightness' || key === 'contrast') lutDirty = true;
         display.textContent = format(state[key]);
         input.style.setProperty('--fill', `${((input.value - input.min) / (input.max - input.min)) * 100}%`);
       };
@@ -406,7 +424,10 @@
     function bindToggle(id, key) {
       const input = document.getElementById(id);
       state[key] = input.checked;
-      input.addEventListener('change', () => { state[key] = input.checked; });
+      input.addEventListener('change', () => {
+        state[key] = input.checked;
+        if (key === 'invert' || key === 'color') lutDirty = true;
+      });
     }
 
     bindSlider('detail', 'detail', v => String(v));
@@ -475,32 +496,53 @@
       }
       if (cols !== state.detail) updateGrid();
 
-      // Compute effective filter values from slider + mode-dependent base
-      const base = state.color ? BASE.color : BASE.mono;
-      const effBri = Math.round(state.brightness * base.brightness / 100);
-      const effCon = Math.round(state.contrast * base.contrast / 100);
-
       capCtx.save();
-      capCtx.filter = `brightness(${effBri}%) contrast(${effCon}%)${state.invert ? ' invert(1)' : ''}`;
       if (state.mirror) { capCtx.translate(cols, 0); capCtx.scale(-1, 1); }
       capCtx.drawImage(video, 0, 0, cols, rows);
       capCtx.restore();
 
-      const { data } = capCtx.getImageData(0, 0, cols, rows);
+      // Rebuild LUT only when sliders/toggles changed — pure array lookup in hot path.
+      // ctx.filter is behind a flag in Safari 18 and silently no-ops; LUT avoids that entirely.
+      if (lutDirty) rebuildLut();
+
+      const imgData = capCtx.getImageData(0, 0, cols, rows);
+      const data = imgData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        data[i]     = lut[data[i]];
+        data[i + 1] = lut[data[i + 1]];
+        data[i + 2] = lut[data[i + 2]];
+      }
+
       const ctx = asciiCtx;
-      ctx.clearRect(0, 0, cols * glyphW, rows * fontSize);
+      const logW = cols * glyphW;
+      const logH = rows * fontSize;
 
       if (state.color) {
+        // Write filtered pixels back so capCanvas can be the drawImage source for multiply.
+        capCtx.putImageData(imgData, 0, 0);
+
+        // Render ASCII as white-on-black (one row = one fillText call instead of cols calls).
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, logW, logH);
+        ctx.fillStyle = '#fff';
         for (let y = 0; y < rows; y++) {
+          let line = '';
+          const rowBase = y * cols << 2;
           for (let x = 0; x < cols; x++) {
-            const i = (y * cols + x) << 2;
-            const r = data[i], g = data[i + 1], b = data[i + 2];
-            const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-            ctx.fillStyle = `rgb(${r},${g},${b})`;
-            ctx.fillText(RAMP[(lum / 255 * RAMP_MAX + 0.5) | 0], x * glyphW, y * fontSize);
+            const i = rowBase + (x << 2);
+            const lum = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+            line += RAMP[(lum / 255 * RAMP_MAX + 0.5) | 0];
           }
+          ctx.fillText(line, 0, y * fontSize);
         }
+
+        // Multiply blend: white text * video color = video color; black bg * anything = black.
+        // One GPU composite op replaces cols×rows individual fillStyle+fillText calls.
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.drawImage(capCanvas, 0, 0, logW, logH);
+        ctx.globalCompositeOperation = 'source-over';
       } else {
+        ctx.clearRect(0, 0, logW, logH);
         ctx.fillStyle = '#f5f5f7';
         for (let y = 0; y < rows; y++) {
           let line = '';
